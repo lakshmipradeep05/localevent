@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import matplotlib.pyplot as plt
 import sqlite3
+import urllib.parse
 
 # ----------------------------
 # Load Environment Variables
@@ -67,14 +68,14 @@ if theme == "Dark":
     """, unsafe_allow_html=True)
 
 # ----------------------------
-# Initialize session state (UPDATED)
+# Initialize session state
 # ----------------------------
 if "user" not in st.session_state:
     st.session_state["user"] = None
 if "saved_events" not in st.session_state:
     st.session_state["saved_events"] = []
 if "search_results" not in st.session_state:
-    st.session_state["search_results"] = None
+    st.session_state["search_results"] = []
 
 # ----------------------------
 # Helper function to load saved events
@@ -93,7 +94,7 @@ def load_saved_events():
         st.session_state["saved_events"] = []
 
 # ----------------------------
-# Helper function to save an event (UPDATED WITH ST.RERUN)
+# Save event function
 # ----------------------------
 def save_event(user_id, name, date, venue, event_url):
     cursor.execute("""
@@ -109,9 +110,9 @@ def save_event(user_id, name, date, venue, event_url):
             VALUES (?, ?, ?, ?, ?)
         """, (user_id, name, date, venue, event_url))
         conn.commit()
-        load_saved_events()  # reload after saving
+        load_saved_events()
         st.success("Event saved to your account!")
-        st.rerun() # Force refresh to show saved item in sidebar immediately
+        st.rerun()
 
 # ----------------------------
 # User Authentication
@@ -123,7 +124,6 @@ if auth_choice == "Sign Up":
     new_username = st.sidebar.text_input("Username")
     new_email = st.sidebar.text_input("Email")
     new_password = st.sidebar.text_input("Password", type="password")
-    
     if st.sidebar.button("Sign Up"):
         try:
             cursor.execute(
@@ -138,7 +138,6 @@ if auth_choice == "Sign Up":
 elif auth_choice == "Login":
     username = st.sidebar.text_input("Username")
     password = st.sidebar.text_input("Password", type="password")
-    
     if st.sidebar.button("Login"):
         cursor.execute(
             "SELECT * FROM users WHERE username=? AND password=?",
@@ -148,8 +147,8 @@ elif auth_choice == "Login":
         if user:
             st.session_state["user"] = user
             st.sidebar.success(f"Logged in as {username}")
-            load_saved_events()  # load saved events after login
-            st.rerun() # Ensure sidebar updates
+            load_saved_events()
+            st.rerun()
         else:
             st.sidebar.error("Invalid credentials")
 
@@ -161,7 +160,7 @@ if st.session_state["user"]:
     if st.sidebar.button("Logout"):
         st.session_state["user"] = None
         st.session_state["saved_events"] = []
-        st.session_state["search_results"] = None
+        st.session_state["search_results"] = []
         st.sidebar.success("Logged out successfully")
         st.rerun()
 
@@ -203,7 +202,7 @@ elif date_option == "Custom Range":
 search_button = st.sidebar.button("Search Events")
 
 # ----------------------------
-# Main Logic (UPDATED TO USE SESSION STATE)
+# Search Events Logic
 # ----------------------------
 if search_button:
     if not city:
@@ -226,16 +225,15 @@ if search_button:
         with st.spinner("Fetching events..."):
             response = requests.get(url, params=params)
             data = response.json()
-            # STORE results in session state
             if "_embedded" in data:
                 st.session_state["search_results"] = data["_embedded"]["events"]
-                st.session_state["search_city"] = city # Store city for the success message
+                st.session_state["search_city"] = city
             else:
                 st.session_state["search_results"] = []
                 st.warning("No events found for this search.")
 
 # ----------------------------
-# Display Logic (SEPARATED FROM SEARCH BUTTON)
+# Display Search Results
 # ----------------------------
 if st.session_state["search_results"]:
     events = st.session_state["search_results"]
@@ -274,7 +272,6 @@ if st.session_state["search_results"]:
                 st.write(f"📍 **Venue:** {venue}")
                 st.markdown(f"[🎟️ View Event]({event_url})")
             with col3:
-                # Use a unique key for each button to avoid session conflicts
                 if st.button("⭐ Save", key=f"save_{idx}"):
                     if st.session_state["user"]:
                         save_event(
@@ -291,22 +288,32 @@ if st.session_state["search_results"]:
     # Analytics
     st.subheader("Event Analytics")
     colA, colB = st.columns(2)
+    
     with colA:
         st.metric("Total Events Found", len(events))
+    
     with colB:
-        if len(category_count) == 0:
-            st.info("No category data available.")
-        elif len(category_count) == 1:
-            only_category = list(category_count.keys())[0]
-            st.metric("Category", only_category)
-        else:
+        if category_count:
+            # 1. Clear the current figure to prevent data ghosting
+            plt.clf() 
+            
+            # 2. Create the plot with improved styling
             df = pd.DataFrame(list(category_count.items()), columns=["Category", "Count"])
-            fig, ax = plt.subplots()
-            ax.bar(df["Category"], df["Count"])
-            ax.set_xlabel("Category")
-            ax.set_ylabel("Number of Events")
-            ax.set_title("Events by Category")
-            plt.xticks(rotation=45)
+            
+            # Use a slightly larger figure size to give labels more room
+            fig, ax = plt.subplots(figsize=(6, 4))
+            
+            ax.bar(df["Category"], df["Count"], color='skyblue', edgecolor='navy')
+            ax.set_xlabel("Category", fontsize=10)
+            ax.set_ylabel("Number of Events", fontsize=10)
+            ax.set_title("Events by Category", fontsize=12)
+            
+            # 3. FIX: Adjust label rotation and alignment to prevent overlapping
+            plt.xticks(rotation=45, ha='right')
+            
+            # 4. FIX: Use tight_layout so labels don't get cut off at the bottom
+            plt.tight_layout()
+            
             st.pyplot(fig)
 
     # Map
@@ -315,11 +322,27 @@ if st.session_state["search_results"]:
         st.map(map_data)
 
 # ----------------------------
-# Display saved events in sidebar
+# Display Saved Events + Reminders + Sharing
 # ----------------------------
-st.sidebar.subheader("Saved Events")
-if st.session_state["saved_events"]:
+st.sidebar.subheader("Saved Events & Reminders")
+if st.session_state["saved_events"] and st.session_state["user"]:
+    user_id = st.session_state["user"][0]
+    today = datetime.utcnow().date()
+    tomorrow = today + timedelta(days=1)
+
     for event in st.session_state["saved_events"]:
-        st.sidebar.write(f"• [{event[0]}]({event[3]}) on {event[1]} at {event[2]}")
+        name, date_str, venue, url = event
+        event_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+        # Highlight upcoming events (today or tomorrow)
+        if today <= event_date <= tomorrow:
+            st.sidebar.info(f"⏰ Upcoming: {name} on {date_str}")
+
+        st.sidebar.markdown(f"• [{name}]({url}) on {date_str} at {venue}")
+
+        # Social sharing
+        wa_message = urllib.parse.quote(f"Check out this event: {name} on {date_str}. {url}")
+        tweet_message = urllib.parse.quote(f"Check out this event: {name} on {date_str} {url}")
+        st.sidebar.markdown(f"[WhatsApp](https://wa.me/?text={wa_message}) | [Twitter](https://twitter.com/intent/tweet?text={tweet_message})")
 else:
     st.sidebar.write("No saved events yet.")
