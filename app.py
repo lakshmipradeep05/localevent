@@ -76,6 +76,8 @@ if "saved_events" not in st.session_state:
     st.session_state["saved_events"] = []
 if "search_results" not in st.session_state:
     st.session_state["search_results"] = []
+if "search_city" not in st.session_state:
+    st.session_state["search_city"] = ""
 
 # ----------------------------
 # Helper function to load saved events
@@ -113,45 +115,6 @@ def save_event(user_id, name, date, venue, event_url):
         load_saved_events()
         st.success("Event saved to your account!")
         st.rerun()
-
-# ----------------------------
-# User Authentication
-# ----------------------------
-st.sidebar.subheader("User Authentication")
-auth_choice = st.sidebar.radio("Login or Sign Up", ["Login", "Sign Up"])
-
-if auth_choice == "Sign Up":
-    new_username = st.sidebar.text_input("Username")
-    new_email = st.sidebar.text_input("Email")
-    new_password = st.sidebar.text_input("Password", type="password")
-    if st.sidebar.button("Sign Up"):
-        try:
-            cursor.execute(
-                "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-                (new_username, new_email, new_password)
-            )
-            conn.commit()
-            st.sidebar.success("Account created! You can now log in.")
-        except sqlite3.IntegrityError:
-            st.sidebar.error("Username or Email already exists.")
-
-elif auth_choice == "Login":
-    username = st.sidebar.text_input("Username")
-    password = st.sidebar.text_input("Password", type="password")
-    if st.sidebar.button("Login"):
-        cursor.execute(
-            "SELECT * FROM users WHERE username=? AND password=?",
-            (username, password)
-        )
-        user = cursor.fetchone()
-        if user:
-            st.session_state["user"] = user
-            st.sidebar.success(f"Logged in as {username}")
-            load_saved_events()
-            st.rerun()
-        else:
-            st.sidebar.error("Invalid credentials")
-
 # ----------------------------
 # Logout button
 # ----------------------------
@@ -169,7 +132,68 @@ if st.session_state["user"]:
 # ----------------------------
 st.title("🎟️ Live Event Finder")
 st.markdown("---")
+# ----------------------------
+# User Authentication (Clean Top Section)
+# ----------------------------
+if not st.session_state["user"]:
 
+    st.subheader("🔐 Login / Sign Up")
+
+    auth_choice = st.radio("Choose Option", ["Login", "Sign Up"], horizontal=True)
+
+    if auth_choice == "Sign Up":
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            new_username = st.text_input("Username")
+
+        with col2:
+            new_email = st.text_input("Email")
+
+        with col3:
+            new_password = st.text_input("Password", type="password")
+
+        if st.button("Create Account"):
+
+            if new_username and new_email and new_password:
+                try:
+                    cursor.execute(
+                        "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+                        (new_username, new_email, new_password)
+                    )
+                    conn.commit()
+                    st.success("Account created! Please login.")
+                except sqlite3.IntegrityError:
+                    st.error("Username or Email already exists.")
+            else:
+                st.warning("Please fill all fields.")
+
+    else:
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            username = st.text_input("Username")
+
+        with col2:
+            password = st.text_input("Password", type="password")
+
+        if st.button("Login"):
+
+            cursor.execute(
+                "SELECT * FROM users WHERE username=? AND password=?",
+                (username, password)
+            )
+            user = cursor.fetchone()
+
+            if user:
+                st.session_state["user"] = user
+                load_saved_events()
+                st.success(f"Welcome {username}!")
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
 # ----------------------------
 # Sidebar Filters
 # ----------------------------
@@ -178,7 +202,7 @@ city = st.sidebar.text_input("Enter City")
 keyword = st.sidebar.text_input("Keyword (optional)")
 category = st.sidebar.selectbox(
     "Category",
-    ["", "Music", "Sports", "Arts & Theatre", "Film", "Miscellaneous"]
+    ["", "Music", "Sports", "Arts & Theatre", "Film"]
 )
 
 st.sidebar.subheader("Date Filter")
@@ -214,6 +238,7 @@ if search_button:
             "city": city,
             "size": 10
         }
+        params["sort"] = "date,asc"
         if keyword:
             params["keyword"] = keyword
         if category:
@@ -320,7 +345,83 @@ if st.session_state["search_results"]:
     if map_data:
         st.subheader("Event Locations")
         st.map(map_data)
+# ----------------------------
+# 🔥 Smart Recommendation System
+# ----------------------------
+if st.session_state["user"]:
 
+    st.subheader("🔥 Recommended For You")
+
+    user_id = st.session_state["user"][0]
+
+    # Get user's favorite category
+    cursor.execute("""
+        SELECT category, COUNT(category)
+        FROM saved_events
+        WHERE user_id=? AND category IS NOT NULL
+        GROUP BY category
+        ORDER BY COUNT(category) DESC
+        LIMIT 1
+    """, (user_id,))
+
+    result = cursor.fetchone()
+
+    if result:
+
+        favorite_category = result[0]
+        st.info(f"Personalized based on: {favorite_category}")
+
+        # Get already saved event names
+        cursor.execute("""
+            SELECT event_name FROM saved_events
+            WHERE user_id=?
+        """, (user_id,))
+
+        saved_names = [row[0] for row in cursor.fetchall()]
+
+        scored_events = []
+
+        for event in st.session_state["search_results"]:
+
+            score = 0
+
+            name = event.get("name", "")
+            city_match = 0
+
+            # Category match
+            if "classifications" in event:
+                cat = event["classifications"][0]["segment"]["name"]
+                if cat == favorite_category:
+                    score += 3
+
+            # Avoid already saved events
+            if name not in saved_names:
+                score += 2
+
+            # Optional: Boost if keyword matches search
+            if keyword and keyword.lower() in name.lower():
+                score += 2
+
+            if score > 0:
+                scored_events.append((score, event))
+
+        # Sort by highest score
+        scored_events.sort(reverse=True, key=lambda x: x[0])
+
+        if scored_events:
+
+            for score, event in scored_events[:5]:  # Show top 5 only
+
+                st.success(f"⭐ {event.get('name')}")
+                st.write(f"📅 {event.get('dates', {}).get('start', {}).get('localDate')}")
+                st.markdown(f"[View Event]({event.get('url')})")
+                st.markdown("---")
+
+        else:
+            st.write("No strong recommendations found in this search.")
+
+    else:
+        st.write("Save more events to improve recommendations!")
 # ----------------------------
 # Display Saved Events + Reminders + Sharing
 # ----------------------------
@@ -346,3 +447,4 @@ if st.session_state["saved_events"] and st.session_state["user"]:
         st.sidebar.markdown(f"[WhatsApp](https://wa.me/?text={wa_message}) | [Twitter](https://twitter.com/intent/tweet?text={tweet_message})")
 else:
     st.sidebar.write("No saved events yet.")
+    
