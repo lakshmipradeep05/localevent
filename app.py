@@ -2,19 +2,101 @@ import streamlit as st
 import requests
 import os
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+import pandas as pd
+import matplotlib.pyplot as plt
 
+# ----------------------------
+# Load Environment Variables
+# ----------------------------
 load_dotenv()
-
 API_KEY = os.getenv("API_KEY")
 
+# ----------------------------
+# Page Configuration
+# ----------------------------
+st.set_page_config(
+    page_title="Live Event Finder",
+    page_icon="🎟️",
+    layout="wide"
+)
+
+# ----------------------------
+# Theme Toggle (Simple)
+# ----------------------------
+theme = st.sidebar.selectbox("Theme", ["Light", "Dark"])
+
+if theme == "Dark":
+    st.markdown(
+        """
+        <style>
+        body { background-color: #0e1117; color: white; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# ----------------------------
+# Session State for Bookmarks
+# ----------------------------
+if "saved_events" not in st.session_state:
+    st.session_state.saved_events = []
+
+# ----------------------------
+# Header
+# ----------------------------
 st.title("🎟️ Live Event Finder")
+st.markdown("---")
 
-city = st.text_input("Enter your city")
+# ----------------------------
+# Sidebar Filters
+# ----------------------------
+st.sidebar.header("Filters")
 
-if st.button("Search Events"):
+city = st.sidebar.text_input("Enter City")
+keyword = st.sidebar.text_input("Keyword (optional)")
+
+category = st.sidebar.selectbox(
+    "Category",
+    ["", "Music", "Sports", "Arts & Theatre", "Film", "Miscellaneous"]
+)
+
+# ----------------------------
+# Date Filter
+# ----------------------------
+st.sidebar.subheader("Date Filter")
+
+date_option = st.sidebar.selectbox(
+    "Select Date Option",
+    ["Any", "Today", "This Weekend", "Custom Range"]
+)
+
+start_date = None
+end_date = None
+
+today = datetime.utcnow()
+
+if date_option == "Today":
+    start_date = today
+    end_date = today + timedelta(days=1)
+
+elif date_option == "This Weekend":
+    start_date = today
+    end_date = today + timedelta(days=3)
+
+elif date_option == "Custom Range":
+    start_date = st.sidebar.date_input("Start Date")
+    end_date = st.sidebar.date_input("End Date")
+
+search_button = st.sidebar.button("Search Events")
+
+# ----------------------------
+# Main Logic
+# ----------------------------
+if search_button:
 
     if not city:
-        st.error("Please enter a city name")
+        st.error("Please enter a city name.")
 
     else:
         url = "https://app.ticketmaster.com/discovery/v2/events.json"
@@ -22,64 +104,145 @@ if st.button("Search Events"):
         params = {
             "apikey": API_KEY,
             "city": city,
-            "size": 5
+            "size": 10
         }
 
-        response = requests.get(url, params=params)
-        data = response.json()
+        if keyword:
+            params["keyword"] = keyword
 
+        if category:
+            params["classificationName"] = category
+
+        if start_date and end_date:
+            params["startDateTime"] = f"{start_date}T00:00:00Z"
+            params["endDateTime"] = f"{end_date}T23:59:59Z"
+
+        with st.spinner("Fetching events..."):
+            response = requests.get(url, params=params)
+            data = response.json()
+
+        # ----------------------------
+        # If Events Found
+        # ----------------------------
         if "_embedded" in data:
 
-            with st.spinner("Fetching events..."):
+            events = data["_embedded"]["events"]
+            map_data = []
+            category_count = {}
 
-                events = data["_embedded"]["events"]
-                map_data = []
+            st.success(f"Events near {city.title()}")
 
-                st.success(f"Top events near {city.title()}")
+            for idx, event in enumerate(events):
 
-                for event in events:
+                name = event.get("name", "No Name")
+                date = event.get("dates", {}).get("start", {}).get("localDate", "N/A")
+                event_url = event.get("url", "#")
 
-                    name = event["name"]
-                    date = event["dates"]["start"]["localDate"]
-                    venue = event["_embedded"]["venues"][0]["name"]
-                    url = event["url"]
+                # Count category
+                if "classifications" in event:
+                    cat = event["classifications"][0]["segment"]["name"]
+                    category_count[cat] = category_count.get(cat, 0) + 1
 
-                    # Get image (if available)
-                    image = None
-                    if "images" in event:
-                        image = event["images"][0]["url"]
+                image = None
+                if "images" in event:
+                    image = event["images"][0]["url"]
 
-                    # Collect map coordinates
+                venue = "Venue Not Available"
+
+                if "_embedded" in event:
                     venue_info = event["_embedded"]["venues"][0]
+                    venue = venue_info.get("name", venue)
 
                     if "location" in venue_info:
-                        lat = venue_info["location"]["latitude"]
-                        lon = venue_info["location"]["longitude"]
+                        lat = float(venue_info["location"]["latitude"])
+                        lon = float(venue_info["location"]["longitude"])
+                        map_data.append({"lat": lat, "lon": lon})
 
-                        map_data.append({
-                            "lat": float(lat),
-                            "lon": float(lon)
-                        })
+                # ----------------------------
+                # Event Card
+                # ----------------------------
+                with st.container():
 
-                    col1, col2 = st.columns([1, 2])
+                    col1, col2, col3 = st.columns([1, 3, 1])
 
                     with col1:
                         if image:
                             st.image(image, use_container_width=True)
 
                     with col2:
-                        st.subheader(name)
-                        st.write(f"📅 {date}")
-                        st.write(f"📍 {venue}")
-                        st.markdown(f"[🎟️ View Event]({url})")
+                        st.markdown(f"### {name}")
+                        st.write(f"📅 **Date:** {date}")
+                        st.write(f"📍 **Venue:** {venue}")
+                        st.markdown(f"[🎟️ View Event]({event_url})")
 
-                    st.divider()
+                    with col3:
+                        if st.button("⭐ Save", key=f"save_{idx}"):
+                            event_data = {
+                                "name": name,
+                                "date": date,
+                                "venue": venue,
+                                "url": event_url
+                            }
 
-                # 👇 MAP SECTION GOES HERE (AFTER LOOP)
+                            if event_data not in st.session_state.saved_events:
+                                st.session_state.saved_events.append(event_data)
 
-                if map_data:
-                    st.subheader("📍 Event Locations Map")
-                    st.map(map_data)
+                    st.markdown("---")
+
+            # ----------------------------
+            # Analytics Section
+            # ----------------------------
+            st.subheader("Event Analytics")
+
+            colA, colB = st.columns(2)
+
+            with colA:
+                st.metric("Total Events Found", len(events))
+
+            with colB:
+
+                if len(category_count) == 0:
+                    st.info("No category data available.")
+
+                elif len(category_count) == 1:
+                    # If only one category → show metric
+                    only_category = list(category_count.keys())[0]
+                    st.metric("Category", only_category)
+
+                else:
+                    # Multiple categories → show bar chart
+                    df = pd.DataFrame(
+                        list(category_count.items()),
+                        columns=["Category", "Count"]
+                    )
+
+                    fig, ax = plt.subplots()
+                    ax.bar(df["Category"], df["Count"])
+                    ax.set_xlabel("Category")
+                    ax.set_ylabel("Number of Events")
+                    ax.set_title("Events by Category")
+                    plt.xticks(rotation=45)
+
+                    st.pyplot(fig)
+
+            # ----------------------------
+            # Map Section
+            # ----------------------------
+            if map_data:
+                st.subheader("Event Locations")
+                st.map(map_data)
 
         else:
-            st.warning("No events found.")
+            st.warning("No events found for this search.")
+
+# ----------------------------
+# Saved Events Section
+# ----------------------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("Saved Events")
+
+if st.session_state.saved_events:
+    for item in st.session_state.saved_events:
+        st.sidebar.write(f"• {item['name']}")
+else:
+    st.sidebar.write("No saved events yet.")
