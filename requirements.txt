@@ -1,1 +1,5 @@
 streamlit
+requests
+python-dotenv
+pandas
+matplotlib
