@@ -433,19 +433,39 @@ with right:
     if "chat_history" not in st.session_state:
         st.session_state["chat_history"] = []
 
-    user_input = st.text_input("Ask something", key="chat_input")
+    # Input box
+    user_input = st.text_input("Type a message...", key="chat_input")
 
     if st.button("Send", key="chat_send") and user_input:
-
-        response = "I can help with filters, saving events, and recommendations!"
+        text = user_input.lower()
+        if "concert" in text or "music" in text:
+            response = "Here are some upcoming music events! 🎵"
+        elif "sports" in text:
+            response = "I can show you nearby sports events! 🏟️"
+        elif "save" in text:
+            response = "You can save events by clicking the ⭐ button next to them."
+        elif "recommend" in text:
+            response = "I can recommend events based on your saved events!"
+        else:
+            response = "I can help with filters, saving events, and recommendations!"
 
         st.session_state["chat_history"].append(("You", user_input))
         st.session_state["chat_history"].append(("Bot", response))
 
+# Display chat messages
     for sender, message in st.session_state["chat_history"]:
-        st.write(f"**{sender}:** {message}")
+        if sender == "You":
+            st.markdown(
+                f"<div style='background-color:#DCF8C6; padding:10px; border-radius:10px; margin:5px 0; width: fit-content; float:right; clear:both;'><b>{sender}:</b> {message}</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"<div style='background-color:#F1F0F0; padding:10px; border-radius:10px; margin:5px 0; width: fit-content; float:left; clear:both;'><b>{sender}:</b> {message}</div>",
+                unsafe_allow_html=True,
+            )
 
-    st.markdown("---")
+    st.markdown("<div style='clear:both'></div>", unsafe_allow_html=True)
 
     # ---------------- Saved Events ----------------
     st.subheader("⭐ Saved Events")
