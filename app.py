@@ -55,18 +55,6 @@ st.set_page_config(
     page_icon="🎟️",
     layout="wide"
 )
-
-# ----------------------------
-# Theme Toggle
-# ----------------------------
-theme = st.sidebar.selectbox("Theme", ["Light", "Dark"])
-if theme == "Dark":
-    st.markdown("""
-    <style>
-    body { background-color: #0e1117; color: white; }
-    </style>
-    """, unsafe_allow_html=True)
-
 # ----------------------------
 # Initialize session state
 # ----------------------------
@@ -115,22 +103,28 @@ def save_event(user_id, name, date, venue, event_url):
         load_saved_events()
         st.success("Event saved to your account!")
         st.rerun()
-# ----------------------------
-# Logout button
-# ----------------------------
-if st.session_state["user"]:
-    st.sidebar.write(f"👤 Logged in as: {st.session_state['user'][1]}")
-    if st.sidebar.button("Logout"):
-        st.session_state["user"] = None
-        st.session_state["saved_events"] = []
-        st.session_state["search_results"] = []
-        st.sidebar.success("Logged out successfully")
-        st.rerun()
+
 
 # ----------------------------
-# Header
+# App Header
 # ----------------------------
-st.title("🎟️ Live Event Finder")
+st.markdown(
+    "<h1 style='text-align: center;'>🎉 Eventure</h1>",
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "<h3 style='text-align: center; color: gray;'>Discover Live Events Near You</h3>",
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "<p style='text-align: center; font-size:16px;'>"
+    "Find, save, and get personalized recommendations for concerts, sports, theatre, and more!"
+    "</p>",
+    unsafe_allow_html=True
+)
+
 st.markdown("---")
 # ----------------------------
 # User Authentication (Clean Top Section)
@@ -146,13 +140,13 @@ if not st.session_state["user"]:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            new_username = st.text_input("Username")
+            new_username = st.text_input("Username", key="signup_username")
 
         with col2:
-            new_email = st.text_input("Email")
+            new_email = st.text_input("Email", key="signup_email")
 
         with col3:
-            new_password = st.text_input("Password", type="password")
+            new_password = st.text_input("Password", type="password", key="signup_password")
 
         if st.button("Create Account"):
 
@@ -177,7 +171,7 @@ if not st.session_state["user"]:
             username = st.text_input("Username")
 
         with col2:
-            password = st.text_input("Password", type="password")
+            password = st.text_input("Password", type="password", key="login_password")
 
         if st.button("Login"):
 
@@ -197,15 +191,16 @@ if not st.session_state["user"]:
 # ----------------------------
 # Sidebar Filters
 # ----------------------------
-st.sidebar.header("Filters")
-city = st.sidebar.text_input("Enter City")
-keyword = st.sidebar.text_input("Keyword (optional)")
+st.sidebar.header("🔍 Filters")
+city = st.sidebar.text_input("📍 Enter City", key="city_input")
+keyword = st.sidebar.text_input("Keyword (optional)", key="keyword_input")
 category = st.sidebar.selectbox(
-    "Category",
-    ["", "Music", "Sports", "Arts & Theatre", "Film"]
+    "🎭 Category",
+    ["", "Music", "Sports", "Arts & Theatre", "Film"],
+    key="category_select"
 )
 
-st.sidebar.subheader("Date Filter")
+st.sidebar.subheader("📅 Date Filter")
 date_option = st.sidebar.selectbox(
     "Select Date Option",
     ["Any", "Today", "This Weekend", "Custom Range"]
@@ -220,10 +215,10 @@ elif date_option == "This Weekend":
     start_date = today
     end_date = today + timedelta(days=3)
 elif date_option == "Custom Range":
-    start_date = st.sidebar.date_input("Start Date")
-    end_date = st.sidebar.date_input("End Date")
+    start_date = st.sidebar.date_input("Start Date", key="start_date")
+    end_date = st.sidebar.date_input("End Date", key="end_date")
 
-search_button = st.sidebar.button("Search Events")
+search_button = st.sidebar.button("🚀 Search Events")
 
 # ----------------------------
 # Search Events Logic
@@ -236,13 +231,15 @@ if search_button:
         params = {
             "apikey": API_KEY,
             "city": city,
-            "size": 10
+            "size": 20
         }
-        params["sort"] = "date,asc"
+        params["sort"] = "relevance,asc"
         if keyword:
             params["keyword"] = keyword
         if category:
             params["classificationName"] = category
+        if not category:
+            params["segmentName"] = "Music,Sports,Arts & Theatre"
         if start_date and end_date:
             params["startDateTime"] = f"{start_date.strftime('%Y-%m-%d')}T00:00:00Z"
             params["endDateTime"] = f"{end_date.strftime('%Y-%m-%d')}T23:59:59Z"
@@ -423,28 +420,81 @@ if st.session_state["user"]:
     else:
         st.write("Save more events to improve recommendations!")
 # ----------------------------
-# Display Saved Events + Reminders + Sharing
+# Right Side Panel
 # ----------------------------
-st.sidebar.subheader("Saved Events & Reminders")
-if st.session_state["saved_events"] and st.session_state["user"]:
-    user_id = st.session_state["user"][0]
-    today = datetime.utcnow().date()
-    tomorrow = today + timedelta(days=1)
 
-    for event in st.session_state["saved_events"]:
-        name, date_str, venue, url = event
-        event_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+left, center, right = st.columns([1, 3, 1])
 
-        # Highlight upcoming events (today or tomorrow)
-        if today <= event_date <= tomorrow:
-            st.sidebar.info(f"⏰ Upcoming: {name} on {date_str}")
+with right:
 
-        st.sidebar.markdown(f"• [{name}]({url}) on {date_str} at {venue}")
+    # ---------------- Chatbot ----------------
+    st.subheader("🤖 Event Assistant")
 
-        # Social sharing
-        wa_message = urllib.parse.quote(f"Check out this event: {name} on {date_str}. {url}")
-        tweet_message = urllib.parse.quote(f"Check out this event: {name} on {date_str} {url}")
-        st.sidebar.markdown(f"[WhatsApp](https://wa.me/?text={wa_message}) | [Twitter](https://twitter.com/intent/tweet?text={tweet_message})")
-else:
-    st.sidebar.write("No saved events yet.")
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = []
+
+    user_input = st.text_input("Ask something", key="chat_input")
+
+    if st.button("Send", key="chat_send") and user_input:
+
+        response = "I can help with filters, saving events, and recommendations!"
+
+        st.session_state["chat_history"].append(("You", user_input))
+        st.session_state["chat_history"].append(("Bot", response))
+
+    for sender, message in st.session_state["chat_history"]:
+        st.write(f"**{sender}:** {message}")
+
+    st.markdown("---")
+
+    # ---------------- Saved Events ----------------
+    st.subheader("⭐ Saved Events")
+
+    if st.session_state["saved_events"] and st.session_state["user"]:
+
+        today = datetime.utcnow().date()
+        tomorrow = today + timedelta(days=1)
+
+        for event in st.session_state["saved_events"]:
+            name = event[0]
+            date_str = event[1]
+            venue = event[2]
+            url = event[3]
+
+            # category may or may not exist
+            cat = event[4] if len(event) > 4 else None
+            event_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+            # Reminder highlight
+            if today <= event_date <= tomorrow:
+                st.info(f"⏰ Upcoming: {name} on {date_str}")
+
+            st.markdown(f"• [{name}]({url}) on {date_str}")
+
+            # Sharing
+            wa_message = urllib.parse.quote(
+                f"Check out this event: {name} on {date_str}. {url}"
+            )
+            tweet_message = urllib.parse.quote(
+                f"Check out this event: {name} on {date_str} {url}"
+            )
+
+            st.markdown(
+                f"[WhatsApp](https://wa.me/?text={wa_message}) | "
+                f"[Twitter](https://twitter.com/intent/tweet?text={tweet_message})"
+            )
+
+    else:
+        st.write("No saved events yet.")
+# ----------------------------
+# Logout button
+# ----------------------------
+if st.session_state["user"]:
+    st.sidebar.write(f"👤 Logged in as: {st.session_state['user'][1]}")
+    if st.sidebar.button("Logout"):
+        st.session_state["user"] = None
+        st.session_state["saved_events"] = []
+        st.session_state["search_results"] = []
+        st.sidebar.success("Logged out successfully")
+        st.rerun()
     
